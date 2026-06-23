@@ -291,27 +291,72 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
         <div style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: '0 0' }}>
 
           {/* ── SVG CONNECTIONS ── */}
-          <svg className="absolute" style={{ width: 4000, height: 4000, left: -2000, top: -2000, pointerEvents: 'none' }}>
+          <svg className="absolute inset-0" style={{ width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' }}>
             <defs>
-              <linearGradient id="gDS" x1="0%" y1="0%" x2="100%"><stop offset="0%" stopColor="#A855F7"/><stop offset="100%" stopColor="#6366F1"/></linearGradient>
-              <linearGradient id="gAPI" x1="0%" y1="0%" x2="100%"><stop offset="0%" stopColor="#10B981"/><stop offset="100%" stopColor="#06B6D4"/></linearGradient>
+              <linearGradient id="gDS" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#A855F7"/>
+                <stop offset="100%" stopColor="#6366F1"/>
+              </linearGradient>
+              <linearGradient id="gAPI" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#10B981"/>
+                <stop offset="100%" stopColor="#06B6D4"/>
+              </linearGradient>
+              <linearGradient id="gJJ" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#6366F1"/>
+                <stop offset="100%" stopColor="#3B82F6"/>
+              </linearGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
             </defs>
             {connections.map(conn => {
               const from = nodes.find(n => n.id === conn.fromId)
               const to = nodes.find(n => n.id === conn.toId)
               if (!from || !to) return null
-              const x1 = from.position.x + 2100, y1 = from.position.y + 2050
-              const x2 = to.position.x + 1900, y2 = to.position.y + 2050
-              const cx = (x1 + x2) / 2
+
+              // Calculate edge points
+              const fromW = from.type === 'journey' ? 260 : 200
+              const toW = to.type === 'journey' ? 260 : 200
+              const fromH = from.type === 'api' ? 140 : 110
+              const toH = to.type === 'api' ? 140 : 110
+
+              const x1 = from.position.x + fromW  // right edge
+              const y1 = from.position.y + fromH / 2
+              const x2 = to.position.x             // left edge
+              const y2 = to.position.y + toH / 2
+
+              // Bezier control points — smooth horizontal curve
+              const dx = Math.abs(x2 - x1)
+              const cpOffset = Math.max(80, dx * 0.4)
+
+              const gradId = conn.type === 'ds-journey' ? 'gDS' : conn.type === 'api-journey' ? 'gAPI' : 'gJJ'
+
               return (
-                <path
-                  key={conn.id}
-                  d={`M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`}
-                  fill="none"
-                  stroke={conn.type === 'ds-journey' ? 'url(#gDS)' : 'url(#gAPI)'}
-                  strokeWidth={1.5}
-                  opacity={0.15}
-                />
+                <g key={conn.id}>
+                  {/* Glow layer */}
+                  <path
+                    d={`M${x1},${y1} C${x1 + cpOffset},${y1} ${x2 - cpOffset},${y2} ${x2},${y2}`}
+                    fill="none"
+                    stroke={`url(#${gradId})`}
+                    strokeWidth={4}
+                    opacity={0.06}
+                    filter="url(#glow)"
+                  />
+                  {/* Main line */}
+                  <path
+                    d={`M${x1},${y1} C${x1 + cpOffset},${y1} ${x2 - cpOffset},${y2} ${x2},${y2}`}
+                    fill="none"
+                    stroke={`url(#${gradId})`}
+                    strokeWidth={2}
+                    opacity={0.35}
+                    strokeLinecap="round"
+                  />
+                  {/* Source dot */}
+                  <circle cx={x1} cy={y1} r={3} fill={conn.type === 'ds-journey' ? '#A855F7' : '#10B981'} opacity={0.5} />
+                  {/* Target dot */}
+                  <circle cx={x2} cy={y2} r={3} fill="#6366F1" opacity={0.5} />
+                </g>
               )
             })}
           </svg>
@@ -319,12 +364,32 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
           {/* ── TEMP CONNECTION LINE (during drag) ── */}
           {connDrag && (
             <svg className="fixed inset-0 w-screen h-screen" style={{ zIndex: 100, pointerEvents: 'none' }}>
-              <line
-                x1={connDrag.fromX} y1={connDrag.fromY}
-                x2={connDrag.toX} y2={connDrag.toY}
-                stroke="#6366F1" strokeWidth={2} strokeDasharray="6 4" opacity={0.6}
-              />
-              <circle cx={connDrag.toX} cy={connDrag.toY} r={6} fill="#6366F1" opacity={0.4} />
+              <defs>
+                <linearGradient id="gDrag" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#6366F1"/>
+                  <stop offset="100%" stopColor="#8B5CF6"/>
+                </linearGradient>
+              </defs>
+              {(() => {
+                const dx = Math.abs(connDrag.toX - connDrag.fromX)
+                const cpOff = Math.max(60, dx * 0.4)
+                return (
+                  <>
+                    <path
+                      d={`M${connDrag.fromX},${connDrag.fromY} C${connDrag.fromX + cpOff},${connDrag.fromY} ${connDrag.toX - cpOff},${connDrag.toY} ${connDrag.toX},${connDrag.toY}`}
+                      fill="none"
+                      stroke="url(#gDrag)"
+                      strokeWidth={2.5}
+                      strokeDasharray="8 4"
+                      opacity={0.6}
+                      strokeLinecap="round"
+                    />
+                    <circle cx={connDrag.fromX} cy={connDrag.fromY} r={4} fill="#6366F1" opacity={0.6} />
+                    <circle cx={connDrag.toX} cy={connDrag.toY} r={6} fill="#8B5CF6" opacity={0.3} />
+                    <circle cx={connDrag.toX} cy={connDrag.toY} r={3} fill="#8B5CF6" opacity={0.6} />
+                  </>
+                )
+              })()}
             </svg>
           )}
 
@@ -589,25 +654,28 @@ function NodeCard({ node, selected, connectMode, onConnect, onDelete, onSelect }
         </button>
       </div>
 
-      {/* Connection handle — drag from here */}
+      {/* Connection handle — drag from here to connect */}
       <div
         data-conn-handle
-        className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full cursor-crosshair transition-all opacity-0 group-hover:opacity-100 hover:scale-150"
+        className="absolute top-1/2 -translate-y-1/2 rounded-full cursor-crosshair transition-all opacity-0 group-hover:opacity-100 hover:scale-150"
         style={{
-          right: -6,
+          right: -5,
+          width: 10,
+          height: 10,
           background: color,
           border: '2px solid white',
-          boxShadow: '0 1px 4px rgba(0,0,0,.2)',
+          boxShadow: `0 0 0 1px ${color}40, 0 2px 4px rgba(0,0,0,.15)`,
         }}
       />
-      {/* Left handle for receiving connections */}
       <div
-        className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all opacity-0 group-hover:opacity-100"
+        className="absolute top-1/2 -translate-y-1/2 rounded-full transition-all opacity-0 group-hover:opacity-30"
         style={{
-          left: -6,
-          background: '#E5E5EA',
+          left: -5,
+          width: 10,
+          height: 10,
+          background: '#D1D5DB',
           border: '2px solid white',
-          boxShadow: '0 1px 4px rgba(0,0,0,.15)',
+          boxShadow: '0 1px 3px rgba(0,0,0,.1)',
         }}
       />
     </div>
