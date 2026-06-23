@@ -564,6 +564,25 @@ function ContextPanel({ node, projectId, onClose, editingScreen, setEditingScree
   const deleteScreen = useStore(s => s.deleteScreen)
   const updateNode = useStore(s => s.updateNode)
   const deleteNode = useStore(s => s.deleteNode)
+  const addConnection = useStore(s => s.addConnection)
+  const deleteConnection = useStore(s => s.deleteConnection)
+  const nodesRaw = useStore(s => s.nodes[projectId])
+  const connsRaw = useStore(s => s.connections[projectId])
+  const allNodes = nodesRaw ?? []
+  const allConns = connsRaw ?? []
+  const colors = { journey: '#6366F1', ds: '#A855F7', api: '#10B981' }
+  const color = colors[node.type]
+
+  // Find connections for this node
+  const nodeConns = allConns.filter(c => c.fromId === node.id || c.toId === node.id)
+  const connectedIds = nodeConns.map(c => c.fromId === node.id ? c.toId : c.fromId)
+  const journeys = allNodes.filter(n => n.type === 'journey') as JourneyNode[]
+  const unconnectedJourneys = journeys.filter(j => !connectedIds.includes(j.id))
+
+  const handleConnectTo = (journeyId: NodeId) => {
+    const connType = node.type === 'ds' ? 'ds-journey' as const : 'api-journey' as const
+    addConnection(projectId, makeConnection(projectId, connType, node.id, journeyId))
+  }
   const colors = { journey: '#6366F1', ds: '#A855F7', api: '#10B981' }
   const color = colors[node.type]
 
@@ -649,6 +668,95 @@ function ContextPanel({ node, projectId, onClose, editingScreen, setEditingScree
         {/* ── API CONTENT ── */}
         {node.type === 'api' && (
           <APIEditor node={node as APINode} projectId={projectId} />
+        )}
+
+        {/* ── CONNECTIONS (DS & API nodes) ── */}
+        {(node.type === 'ds' || node.type === 'api') && (
+          <div className="mt-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ fontFamily: 'var(--font-mono)', color: '#8E8EA0' }}>
+              Connected Journeys ({nodeConns.length})
+            </div>
+
+            {/* Existing connections */}
+            {nodeConns.map(conn => {
+              const targetId = conn.fromId === node.id ? conn.toId : conn.fromId
+              const target = allNodes.find(n => n.id === targetId)
+              if (!target) return null
+              return (
+                <div key={conn.id} className="flex items-center gap-2 px-3 py-2 rounded-lg mb-1" style={{ background: '#F4F4F6' }}>
+                  <div className="w-5 h-5 rounded flex items-center justify-center" style={{ background: 'rgba(99,102,241,.08)', color: '#6366F1' }}>
+                    <Layers size={11} />
+                  </div>
+                  <span className="text-sm font-medium flex-1">{target.name}</span>
+                  <button
+                    onClick={() => deleteConnection(projectId, conn.id)}
+                    className="cursor-pointer p-1 rounded hover:bg-red-50"
+                    style={{ color: '#B8B8C8' }}
+                    title="Remove connection"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )
+            })}
+
+            {/* Connect to new journey */}
+            {unconnectedJourneys.length > 0 && (
+              <div className="mt-2">
+                <div className="text-[10px] mb-1.5" style={{ color: '#8E8EA0' }}>Connect to:</div>
+                <div className="space-y-1">
+                  {unconnectedJourneys.map(j => (
+                    <button
+                      key={j.id}
+                      onClick={() => handleConnectTo(j.id)}
+                      className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-left cursor-pointer transition-all hover:bg-gray-50"
+                      style={{ border: '1px dashed rgba(0,0,0,.1)' }}
+                    >
+                      <div className="w-5 h-5 rounded flex items-center justify-center" style={{ background: 'rgba(99,102,241,.05)', color: '#6366F1' }}>
+                        <Link size={10} />
+                      </div>
+                      <span className="text-sm" style={{ color: '#5C5C72' }}>{j.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {nodeConns.length === 0 && unconnectedJourneys.length === 0 && (
+              <p className="text-xs py-3 text-center" style={{ color: '#B8B8C8' }}>Add a Journey node first to connect.</p>
+            )}
+          </div>
+        )}
+
+        {/* ── CONNECTIONS (Journey nodes — show what's connected to this journey) ── */}
+        {node.type === 'journey' && nodeConns.length > 0 && (
+          <div className="mt-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ fontFamily: 'var(--font-mono)', color: '#8E8EA0' }}>
+              Connected Sources ({nodeConns.length})
+            </div>
+            {nodeConns.map(conn => {
+              const sourceId = conn.fromId === node.id ? conn.toId : conn.fromId
+              const source = allNodes.find(n => n.id === sourceId)
+              if (!source) return null
+              const srcColor = source.type === 'ds' ? '#A855F7' : '#10B981'
+              return (
+                <div key={conn.id} className="flex items-center gap-2 px-3 py-2 rounded-lg mb-1" style={{ background: '#F4F4F6' }}>
+                  <div className="w-5 h-5 rounded flex items-center justify-center" style={{ background: `${srcColor}10`, color: srcColor }}>
+                    {source.type === 'ds' ? <Layout size={11} /> : <Zap size={11} />}
+                  </div>
+                  <span className="text-sm font-medium flex-1">{source.name}</span>
+                  <span className="text-[9px] uppercase font-mono" style={{ color: srcColor }}>{source.type}</span>
+                  <button
+                    onClick={() => deleteConnection(projectId, conn.id)}
+                    className="cursor-pointer p-1 rounded hover:bg-red-50"
+                    style={{ color: '#B8B8C8' }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>
