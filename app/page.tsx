@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStore } from '@/lib/store'
 import { useRouter } from 'next/navigation'
 import { makeProject } from '@/utils/factories'
 import { Trash2 } from 'lucide-react'
 
 export default function Home() {
+  const [hydrated, setHydrated] = useState(false)
   const projects = useStore(s => s.projects)
   const addProject = useStore(s => s.addProject)
   const deleteProject = useStore(s => s.deleteProject)
@@ -14,6 +15,8 @@ export default function Home() {
   const router = useRouter()
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
+
+  useEffect(() => { setHydrated(true) }, [])
 
   const handleCreate = () => {
     const projectName = name.trim() || 'Untitled Product'
@@ -28,20 +31,19 @@ export default function Home() {
     router.push(`/projects/brain?id=${id}`)
   }
 
+  if (!hydrated) {
+    return <main className="min-h-screen" style={{ background: 'var(--color-bg)' }} />
+  }
+
   return (
     <main className="min-h-screen flex items-center justify-center" style={{ background: 'var(--color-bg)' }}>
-      {/* Ambient */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute rounded-full" style={{ width: 600, height: 600, background: '#6366F1', filter: 'blur(150px)', opacity: .04, top: '-10%', left: '20%' }} />
         <div className="absolute rounded-full" style={{ width: 400, height: 400, background: '#8B5CF6', filter: 'blur(150px)', opacity: .03, bottom: '0%', right: '15%' }} />
       </div>
 
       <div className="text-center max-w-lg px-6 relative z-10">
-        {/* Logo */}
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-8"
-          style={{ background: 'linear-gradient(135deg,#6366F1,#8B5CF6)', boxShadow: '0 4px 20px rgba(99,102,241,.25)' }}
-        >
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-8" style={{ background: 'linear-gradient(135deg,#6366F1,#8B5CF6)', boxShadow: '0 4px 20px rgba(99,102,241,.25)' }}>
           <svg viewBox="0 0 24 24" fill="none" className="w-8 h-8">
             <path d="M12 3L20 7.5V16.5L12 21L4 16.5V7.5L12 3Z" stroke="white" strokeWidth="2" strokeLinejoin="round"/>
             <path d="M12 12L20 7.5M12 12V21M12 12L4 7.5" stroke="white" strokeWidth="1.5" opacity=".4"/>
@@ -53,7 +55,6 @@ export default function Home() {
           The product brain for AI-native teams.
         </p>
 
-        {/* Existing projects */}
         {projects.length > 0 && (
           <div className="mb-8 space-y-2">
             {projects.map(p => (
@@ -78,7 +79,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Create new */}
         {!creating ? (
           <button
             onClick={() => setCreating(true)}
