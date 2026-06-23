@@ -583,8 +583,6 @@ function ContextPanel({ node, projectId, onClose, editingScreen, setEditingScree
     const connType = node.type === 'ds' ? 'ds-journey' as const : 'api-journey' as const
     addConnection(projectId, makeConnection(projectId, connType, node.id, journeyId))
   }
-  const colors = { journey: '#6366F1', ds: '#A855F7', api: '#10B981' }
-  const color = colors[node.type]
 
   return (
     <div className="fixed right-4 top-16 bottom-20 z-50 w-[360px] flex flex-col rounded-2xl overflow-hidden" style={{ background: 'white', boxShadow: '0 16px 48px rgba(0,0,0,.10)', border: '1px solid rgba(0,0,0,.06)' }} data-no-pan>
