@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useStore } from '@/lib/store'
 import { useCanvasInteraction } from '@/hooks/useCanvasInteraction'
 import { makeJourney, makeDS, makeAPI, makeScreen, makeConnection, makeMemory } from '@/utils/factories'
@@ -49,6 +49,34 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
 
   const canvas = useCanvasInteraction(pid)
   const selectedNode = useMemo(() => nodes.find(n => n.id === selNodeId), [nodes, selNodeId])
+
+  // ── Keyboard shortcuts ──
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Don't delete if user is typing in an input
+        const tag = (e.target as HTMLElement).tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+        if (selNodeId) {
+          deleteNode(pid, selNodeId)
+          selectNode(null)
+        }
+      }
+      if (e.key === 'Escape') {
+        setConnectMode(null)
+        selectNode(null)
+        setAddMenuOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [selNodeId, pid, deleteNode, selectNode])
+
+  // ── Delete node handler ──
+  const handleDeleteNode = useCallback((nodeId: NodeId) => {
+    deleteNode(pid, nodeId)
+    if (selNodeId === nodeId) selectNode(null)
+  }, [pid, deleteNode, selNodeId, selectNode])
 
   // ── Computed health ──
   const journeys = useMemo(() => nodes.filter(n => n.type === 'journey') as JourneyNode[], [nodes])
@@ -282,6 +310,7 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
                   if (connectMode) handleConnect(node.id)
                   else setConnectMode({ fromId: node.id, fromType: node.type })
                 }}
+                onDelete={() => handleDeleteNode(node.id)}
               />
             </div>
           ))}
@@ -297,6 +326,45 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
               <button onClick={() => setAddMenuOpen(true)} className="px-6 py-2.5 rounded-xl text-white text-sm font-semibold cursor-pointer" style={{ background: 'linear-gradient(135deg,#6366F1,#8B5CF6)', boxShadow: '0 2px 12px rgba(99,102,241,.25)' }}>
                 <Plus size={14} className="inline mr-1.5 -mt-0.5" /> Add your first node
               </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ══════ FAB — Add Node ══════ */}
+      <div className="fixed bottom-4 left-16 z-40" data-no-pan>
+        <div className="relative">
+          <button
+            onClick={() => setAddMenuOpen(!addMenuOpen)}
+            className="w-12 h-12 rounded-2xl flex items-center justify-center cursor-pointer transition-all hover:scale-105"
+            style={{
+              background: addMenuOpen ? 'white' : 'linear-gradient(135deg,#6366F1,#8B5CF6)',
+              color: addMenuOpen ? '#6366F1' : 'white',
+              boxShadow: addMenuOpen ? '0 4px 16px rgba(0,0,0,.1)' : '0 4px 20px rgba(99,102,241,.3)',
+              border: addMenuOpen ? '1px solid rgba(0,0,0,.06)' : 'none',
+            }}
+          >
+            <Plus size={22} style={{ transform: addMenuOpen ? 'rotate(45deg)' : 'none', transition: 'transform .2s' }} />
+          </button>
+          {addMenuOpen && (
+            <div className="absolute bottom-14 left-0 p-2 rounded-xl" style={{ background: 'white', boxShadow: '0 8px 32px rgba(0,0,0,.12)', border: '1px solid rgba(0,0,0,.06)', minWidth: 220 }}>
+              {[
+                { type: 'journey' as const, label: 'Journey', desc: 'User journey or feature flow', icon: <Layers size={16} />, color: '#6366F1' },
+                { type: 'ds' as const, label: 'Design System', desc: 'Component library', icon: <Layout size={16} />, color: '#A855F7' },
+                { type: 'api' as const, label: 'API Layer', desc: 'Backend endpoints', icon: <Zap size={16} />, color: '#10B981' },
+              ].map(item => (
+                <button
+                  key={item.type}
+                  onClick={() => handleAddNode(item.type)}
+                  className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-all cursor-pointer hover:bg-gray-50"
+                >
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${item.color}10`, color: item.color }}>{item.icon}</div>
+                  <div>
+                    <div className="text-sm font-medium" style={{ color: '#1A1A2E' }}>{item.label}</div>
+                    <div className="text-xs" style={{ color: '#8E8EA0' }}>{item.desc}</div>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -352,8 +420,8 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
 // NODE CARD
 // ═══════════════════════════════════════
 
-function NodeCard({ node, selected, connectMode, onConnect }: {
-  node: GraphNode; selected: boolean; connectMode: { fromId: string; fromType: string } | null; onConnect: () => void
+function NodeCard({ node, selected, connectMode, onConnect, onDelete }: {
+  node: GraphNode; selected: boolean; connectMode: { fromId: string; fromType: string } | null; onConnect: () => void; onDelete: () => void
 }) {
   const isConnectTarget = connectMode && connectMode.fromId !== node.id && node.type === 'journey'
   const colors = { journey: '#6366F1', ds: '#A855F7', api: '#10B981' }
@@ -362,7 +430,7 @@ function NodeCard({ node, selected, connectMode, onConnect }: {
 
   return (
     <div
-      className="rounded-2xl transition-all relative overflow-hidden"
+      className="rounded-2xl transition-all relative overflow-hidden group"
       style={{
         width: node.type === 'journey' ? 260 : 200,
         padding: '16px 18px',
@@ -450,16 +518,25 @@ function NodeCard({ node, selected, connectMode, onConnect }: {
         </div>
       )}
 
-      {/* Connect button */}
-      {!connectMode && (node.type === 'ds' || node.type === 'api') && (
+      {/* Action buttons */}
+      <div className="flex gap-1.5 mt-2">
+        {!connectMode && (node.type === 'ds' || node.type === 'api') && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onConnect() }}
+            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md cursor-pointer transition-all hover:bg-gray-100"
+            style={{ background: 'rgba(0,0,0,.03)', color: '#8E8EA0' }}
+          >
+            <Link size={10} /> Connect
+          </button>
+        )}
         <button
-          onClick={(e) => { e.stopPropagation(); onConnect() }}
-          className="mt-2 flex items-center gap-1 text-[10px] px-2 py-1 rounded-md cursor-pointer transition-all"
-          style={{ background: 'rgba(0,0,0,.03)', color: '#8E8EA0' }}
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md cursor-pointer transition-all opacity-0 group-hover:opacity-100 hover:bg-red-50"
+          style={{ color: '#F43F5E' }}
         >
-          <Link size={10} /> Connect to Journey
+          <Trash2 size={10} /> Delete
         </button>
-      )}
+      </div>
     </div>
   )
 }
@@ -476,6 +553,7 @@ function ContextPanel({ node, projectId, onClose, editingScreen, setEditingScree
   const updateScreenCtx = useStore(s => s.updateScreenCtx)
   const deleteScreen = useStore(s => s.deleteScreen)
   const updateNode = useStore(s => s.updateNode)
+  const deleteNode = useStore(s => s.deleteNode)
   const colors = { journey: '#6366F1', ds: '#A855F7', api: '#10B981' }
   const color = colors[node.type]
 
@@ -495,6 +573,7 @@ function ContextPanel({ node, projectId, onClose, editingScreen, setEditingScree
             onBlur={e => updateNode(projectId, node.id, { name: e.target.value } as Partial<GraphNode>)}
           />
         </div>
+        <button onClick={() => { deleteNode(projectId, node.id); onClose() }} className="p-1 rounded-md cursor-pointer hover:bg-red-50" style={{ color: '#F43F5E' }} title="Delete node"><Trash2 size={14} /></button>
         <button onClick={onClose} className="p-1 rounded-md cursor-pointer" style={{ color: '#8E8EA0' }}><X size={16} /></button>
       </div>
 
