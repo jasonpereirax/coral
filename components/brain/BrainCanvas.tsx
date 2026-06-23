@@ -23,8 +23,10 @@ interface BrainCanvasProps {
 
 export default function BrainCanvas({ project }: BrainCanvasProps) {
   const pid = project.id
-  const nodes = useStore(s => s.nodes[pid] ?? [])
-  const connections = useStore(s => s.connections[pid] ?? [])
+  const nodesRaw = useStore(s => s.nodes[pid])
+  const connsRaw = useStore(s => s.connections[pid])
+  const nodes = nodesRaw ?? []
+  const connections = connsRaw ?? []
   const transform = useStore(s => s.transform)
   const activeLayer = useStore(s => s.activeLayer)
   const setActiveLayer = useStore(s => s.setActiveLayer)
