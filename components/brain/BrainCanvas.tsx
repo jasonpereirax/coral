@@ -311,6 +311,7 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
                   else setConnectMode({ fromId: node.id, fromType: node.type })
                 }}
                 onDelete={() => handleDeleteNode(node.id)}
+                onSelect={() => selectNode(node.id)}
               />
             </div>
           ))}
@@ -420,17 +421,27 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
 // NODE CARD
 // ═══════════════════════════════════════
 
-function NodeCard({ node, selected, connectMode, onConnect, onDelete }: {
-  node: GraphNode; selected: boolean; connectMode: { fromId: string; fromType: string } | null; onConnect: () => void; onDelete: () => void
+function NodeCard({ node, selected, connectMode, onConnect, onDelete, onSelect }: {
+  node: GraphNode; selected: boolean; connectMode: { fromId: string; fromType: string } | null; onConnect: () => void; onDelete: () => void; onSelect: () => void
 }) {
   const isConnectTarget = connectMode && connectMode.fromId !== node.id && node.type === 'journey'
   const colors = { journey: '#6366F1', ds: '#A855F7', api: '#10B981' }
   const labels = { journey: 'JOURNEY', ds: 'DESIGN SYSTEM', api: 'API LAYER' }
   const color = colors[node.type]
 
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (isConnectTarget) {
+      onConnect()
+    } else {
+      onSelect()
+    }
+  }
+
   return (
     <div
-      className="rounded-2xl transition-all relative overflow-hidden group"
+      onClick={handleClick}
+      className="rounded-2xl transition-all relative overflow-hidden group cursor-pointer"
       style={{
         width: node.type === 'journey' ? 260 : 200,
         padding: '16px 18px',
@@ -441,7 +452,6 @@ function NodeCard({ node, selected, connectMode, onConnect, onDelete }: {
         cursor: isConnectTarget ? 'pointer' : 'grab',
         border: isConnectTarget ? `2px dashed ${color}` : '1px solid rgba(0,0,0,.06)',
       }}
-      onClick={isConnectTarget ? (e) => { e.stopPropagation(); onConnect() } : undefined}
     >
       {/* Top accent line */}
       <div className="absolute top-0 left-0 right-0 h-[3px] transition-opacity" style={{
