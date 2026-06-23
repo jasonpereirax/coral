@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useStore } from '@/lib/store'
-import { useCanvasInteraction } from '@/hooks/useCanvasInteraction'
+import { useCanvasInteraction, type ConnDrag } from '@/hooks/useCanvasInteraction'
 import { makeJourney, makeDS, makeAPI, makeScreen, makeConnection, makeMemory } from '@/utils/factories'
 import { screenCompleteness } from '@/lib/graph/completeness'
 import { toMarkdown } from '@/lib/export/to-markdown'
@@ -48,7 +48,36 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
   const [exported, setExported] = useState(false)
 
   const canvas = useCanvasInteraction(pid)
+  const { connDrag } = canvas
   const selectedNode = useMemo(() => nodes.find(n => n.id === selNodeId), [nodes, selNodeId])
+
+  // ── Listen for connection drag completion ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { fromId, toId } = (e as CustomEvent).detail
+      const fromNode = nodes.find(n => n.id === fromId)
+      const toNode = nodes.find(n => n.id === toId)
+      if (!fromNode || !toNode) return
+
+      // Determine connection type based on node types
+      let connType: 'ds-journey' | 'api-journey' | 'journey-journey' | null = null
+      if (fromNode.type === 'ds' && toNode.type === 'journey') connType = 'ds-journey'
+      else if (fromNode.type === 'api' && toNode.type === 'journey') connType = 'api-journey'
+      else if (fromNode.type === 'journey' && toNode.type === 'ds') connType = 'ds-journey'
+      else if (fromNode.type === 'journey' && toNode.type === 'api') connType = 'api-journey'
+      else if (fromNode.type === 'journey' && toNode.type === 'journey') connType = 'journey-journey'
+      // Swap from/to so DS/API is always "from"
+      if (connType === 'ds-journey' && fromNode.type === 'journey') {
+        addConnection(pid, makeConnection(pid, connType, toId, fromId))
+      } else if (connType === 'api-journey' && fromNode.type === 'journey') {
+        addConnection(pid, makeConnection(pid, connType, toId, fromId))
+      } else if (connType) {
+        addConnection(pid, makeConnection(pid, connType, fromId, toId))
+      }
+    }
+    window.addEventListener('coral-connect', handler)
+    return () => window.removeEventListener('coral-connect', handler)
+  }, [nodes, pid, addConnection])
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
@@ -286,6 +315,18 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
               )
             })}
           </svg>
+
+          {/* ── TEMP CONNECTION LINE (during drag) ── */}
+          {connDrag && (
+            <svg className="fixed inset-0 w-screen h-screen" style={{ zIndex: 100, pointerEvents: 'none' }}>
+              <line
+                x1={connDrag.fromX} y1={connDrag.fromY}
+                x2={connDrag.toX} y2={connDrag.toY}
+                stroke="#6366F1" strokeWidth={2} strokeDasharray="6 4" opacity={0.6}
+              />
+              <circle cx={connDrag.toX} cy={connDrag.toY} r={6} fill="#6366F1" opacity={0.4} />
+            </svg>
+          )}
 
           {/* ── NODES ── */}
           {nodes.map(node => (
@@ -547,6 +588,28 @@ function NodeCard({ node, selected, connectMode, onConnect, onDelete, onSelect }
           <Trash2 size={10} /> Delete
         </button>
       </div>
+
+      {/* Connection handle — drag from here */}
+      <div
+        data-conn-handle
+        className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full cursor-crosshair transition-all opacity-0 group-hover:opacity-100 hover:scale-150"
+        style={{
+          right: -6,
+          background: color,
+          border: '2px solid white',
+          boxShadow: '0 1px 4px rgba(0,0,0,.2)',
+        }}
+      />
+      {/* Left handle for receiving connections */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all opacity-0 group-hover:opacity-100"
+        style={{
+          left: -6,
+          background: '#E5E5EA',
+          border: '2px solid white',
+          boxShadow: '0 1px 4px rgba(0,0,0,.15)',
+        }}
+      />
     </div>
   )
 }
@@ -726,12 +789,14 @@ function ContextPanel({ node, projectId, onClose, editingScreen, setEditingScree
           </div>
         )}
 
-        {/* ── CONNECTIONS (Journey nodes — show what's connected to this journey) ── */}
-        {node.type === 'journey' && nodeConns.length > 0 && (
+        {/* ── CONNECTIONS (Journey nodes — connect DS/API to this journey) ── */}
+        {node.type === 'journey' && (
           <div className="mt-2">
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ fontFamily: 'var(--font-mono)', color: '#8E8EA0' }}>
-              Connected Sources ({nodeConns.length})
+              Connections ({nodeConns.length})
             </div>
+
+            {/* Existing connections */}
             {nodeConns.map(conn => {
               const sourceId = conn.fromId === node.id ? conn.toId : conn.fromId
               const source = allNodes.find(n => n.id === sourceId)
@@ -754,6 +819,43 @@ function ContextPanel({ node, projectId, onClose, editingScreen, setEditingScree
                 </div>
               )
             })}
+
+            {/* Connect DS/API nodes to this Journey */}
+            {(() => {
+              const dsAndApiNodes = allNodes.filter(n => n.type === 'ds' || n.type === 'api')
+              const unconnected = dsAndApiNodes.filter(n => !connectedIds.includes(n.id))
+              if (unconnected.length === 0 && nodeConns.length === 0) {
+                return <p className="text-xs py-3 text-center" style={{ color: '#B8B8C8' }}>Add a Design System or API node to connect.</p>
+              }
+              if (unconnected.length === 0) return null
+              return (
+                <div className="mt-2">
+                  <div className="text-[10px] mb-1.5" style={{ color: '#8E8EA0' }}>Connect to this journey:</div>
+                  <div className="space-y-1">
+                    {unconnected.map(n => {
+                      const nColor = n.type === 'ds' ? '#A855F7' : '#10B981'
+                      return (
+                        <button
+                          key={n.id}
+                          onClick={() => {
+                            const connType = n.type === 'ds' ? 'ds-journey' as const : 'api-journey' as const
+                            addConnection(projectId, makeConnection(projectId, connType, n.id, node.id))
+                          }}
+                          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-left cursor-pointer transition-all hover:bg-gray-50"
+                          style={{ border: '1px dashed rgba(0,0,0,.1)' }}
+                        >
+                          <div className="w-5 h-5 rounded flex items-center justify-center" style={{ background: `${nColor}08`, color: nColor }}>
+                            {n.type === 'ds' ? <Layout size={10} /> : <Zap size={10} />}
+                          </div>
+                          <span className="text-sm" style={{ color: '#5C5C72' }}>{n.name}</span>
+                          <span className="text-[9px] uppercase font-mono ml-auto" style={{ color: nColor }}>{n.type === 'ds' ? 'DS' : 'API'}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
