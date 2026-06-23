@@ -291,71 +291,41 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
         <div style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: '0 0' }}>
 
           {/* ── SVG CONNECTIONS ── */}
-          <svg className="absolute inset-0" style={{ width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' }}>
+          <svg style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'visible', pointerEvents: 'none' }}>
             <defs>
               <linearGradient id="gDS" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#A855F7"/>
-                <stop offset="100%" stopColor="#6366F1"/>
+                <stop offset="0%" stopColor="#A855F7"/><stop offset="100%" stopColor="#6366F1"/>
               </linearGradient>
               <linearGradient id="gAPI" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#10B981"/>
-                <stop offset="100%" stopColor="#06B6D4"/>
+                <stop offset="0%" stopColor="#10B981"/><stop offset="100%" stopColor="#06B6D4"/>
               </linearGradient>
               <linearGradient id="gJJ" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#6366F1"/>
-                <stop offset="100%" stopColor="#3B82F6"/>
+                <stop offset="0%" stopColor="#6366F1"/><stop offset="100%" stopColor="#3B82F6"/>
               </linearGradient>
-              <filter id="glow">
-                <feGaussianBlur stdDeviation="3" result="blur"/>
-                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-              </filter>
             </defs>
             {connections.map(conn => {
               const from = nodes.find(n => n.id === conn.fromId)
               const to = nodes.find(n => n.id === conn.toId)
               if (!from || !to) return null
 
-              // Calculate edge points
               const fromW = from.type === 'journey' ? 260 : 200
-              const toW = to.type === 'journey' ? 260 : 200
               const fromH = from.type === 'api' ? 140 : 110
               const toH = to.type === 'api' ? 140 : 110
 
-              const x1 = from.position.x + fromW  // right edge
+              const x1 = from.position.x + fromW
               const y1 = from.position.y + fromH / 2
-              const x2 = to.position.x             // left edge
+              const x2 = to.position.x
               const y2 = to.position.y + toH / 2
-
-              // Bezier control points — smooth horizontal curve
-              const dx = Math.abs(x2 - x1)
-              const cpOffset = Math.max(80, dx * 0.4)
-
+              const cpOff = Math.max(80, Math.abs(x2 - x1) * 0.4)
               const gradId = conn.type === 'ds-journey' ? 'gDS' : conn.type === 'api-journey' ? 'gAPI' : 'gJJ'
+              const d = `M${x1},${y1} C${x1 + cpOff},${y1} ${x2 - cpOff},${y2} ${x2},${y2}`
 
               return (
                 <g key={conn.id}>
-                  {/* Glow layer */}
-                  <path
-                    d={`M${x1},${y1} C${x1 + cpOffset},${y1} ${x2 - cpOffset},${y2} ${x2},${y2}`}
-                    fill="none"
-                    stroke={`url(#${gradId})`}
-                    strokeWidth={4}
-                    opacity={0.06}
-                    filter="url(#glow)"
-                  />
-                  {/* Main line */}
-                  <path
-                    d={`M${x1},${y1} C${x1 + cpOffset},${y1} ${x2 - cpOffset},${y2} ${x2},${y2}`}
-                    fill="none"
-                    stroke={`url(#${gradId})`}
-                    strokeWidth={2}
-                    opacity={0.35}
-                    strokeLinecap="round"
-                  />
-                  {/* Source dot */}
-                  <circle cx={x1} cy={y1} r={3} fill={conn.type === 'ds-journey' ? '#A855F7' : '#10B981'} opacity={0.5} />
-                  {/* Target dot */}
-                  <circle cx={x2} cy={y2} r={3} fill="#6366F1" opacity={0.5} />
+                  <path d={d} fill="none" stroke={`url(#${gradId})`} strokeWidth={6} opacity={0.08} />
+                  <path d={d} fill="none" stroke={`url(#${gradId})`} strokeWidth={2} opacity={0.4} strokeLinecap="round" />
+                  <circle cx={x1} cy={y1} r={3.5} fill={conn.type === 'ds-journey' ? '#A855F7' : '#10B981'} opacity={0.5} />
+                  <circle cx={x2} cy={y2} r={3.5} fill="#6366F1" opacity={0.5} />
                 </g>
               )
             })}
