@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react'
 import { useStore } from '@/lib/store'
-import type { ProjectId, NodeId, XY } from '@/types'
+import type { ProjectId, XY } from '@/types'
 
 const DRAG_THRESHOLD = 4
 const MIN_SCALE = 0.25
@@ -32,6 +32,10 @@ export function useCanvasInteraction(projectId: ProjectId | null) {
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     const target = e.target as HTMLElement
+
+    // Don't interfere with buttons, inputs, or elements marked as no-pan
+    if (target.closest('button') || target.closest('input') || target.closest('textarea') || target.closest('select') || target.closest('[data-no-pan]')) return
+
     const nodeEl = target.closest('[data-node-id]') as HTMLElement | null
     const s = stateRef.current
 
@@ -40,15 +44,14 @@ export function useCanvasInteraction(projectId: ProjectId | null) {
     s.moved = false
 
     if (nodeEl && projectId) {
-      // Node drag
+      // Node drag — DON'T capture pointer so click events still fire on children
       s.mode = 'drag'
       s.dragNodeId = nodeEl.dataset.nodeId!
       const nodeX = parseFloat(nodeEl.dataset.nodeX || '0')
       const nodeY = parseFloat(nodeEl.dataset.nodeY || '0')
       s.dragStartNodePos = { x: nodeX, y: nodeY }
-      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    } else if (!target.closest('[data-no-pan]')) {
-      // Pan
+    } else {
+      // Pan — capture pointer for smooth panning
       s.mode = 'pan'
       s.startTx = transform.x
       s.startTy = transform.y
@@ -80,22 +83,23 @@ export function useCanvasInteraction(projectId: ProjectId | null) {
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     const s = stateRef.current
 
-    if (!s.moved) {
-      if (s.mode === 'drag' && s.dragNodeId) {
-        selectNode(s.dragNodeId)
-      } else if (s.mode === 'pan') {
-        clearSelection()
-      }
+    if (!s.moved && s.mode === 'pan') {
+      // Clicked on background without moving — clear selection
+      clearSelection()
+    }
+    // Note: node click/select is handled by NodeCard's onClick, not here
+    // This prevents the hook from interfering with node buttons
+
+    if (s.mode === 'pan') {
+      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
     }
 
     s.mode = 'idle'
     s.dragNodeId = null
     s.dragStartNodePos = null
-    ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-  }, [selectNode, clearSelection])
+  }, [clearSelection])
 
   const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault()
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const mx = e.clientX - rect.left
     const my = e.clientY - rect.top
@@ -104,7 +108,6 @@ export function useCanvasInteraction(projectId: ProjectId | null) {
     const delta = -e.deltaY * ZOOM_SPEED
     const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale + delta))
 
-    // Zoom toward cursor
     const wx = (mx - transform.x) / oldScale
     const wy = (my - transform.y) / oldScale
 
