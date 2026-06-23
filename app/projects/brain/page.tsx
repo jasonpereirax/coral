@@ -11,17 +11,11 @@ function BrainContent() {
   const searchParams = useSearchParams()
   const projectId = searchParams.get('id')
   const [hydrated, setHydrated] = useState(false)
-
-  useEffect(() => {
-    setHydrated(true)
-  }, [])
-
+  useEffect(() => { setHydrated(true) }, [])
   const projects = useStore(s => s.projects)
   const project = projects.find(p => p.id === projectId)
 
-  if (!hydrated) {
-    return <div className="w-screen h-screen" style={{ background: '#EDEDF0' }} />
-  }
+  if (!hydrated) return <div className="w-screen h-screen" style={{ background: '#EDEDF0' }} />
 
   if (!project) {
     return (
@@ -33,7 +27,6 @@ function BrainContent() {
       </div>
     )
   }
-
   return <BrainCanvas project={project} />
 }
 

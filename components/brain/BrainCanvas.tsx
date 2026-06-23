@@ -6,6 +6,7 @@ import { useCanvasInteraction, type ConnDrag } from '@/hooks/useCanvasInteractio
 import { makeJourney, makeDS, makeAPI, makeScreen, makeConnection, makeMemory } from '@/utils/factories'
 import { screenCompleteness } from '@/lib/graph/completeness'
 import { toMarkdown } from '@/lib/export/to-markdown'
+import { buildMCPContext } from '@/lib/export/to-mcp'
 import { EMPTY_CONTEXT } from '@/types'
 import type { Project, GraphNode, JourneyNode, DSNode, APINode, ScreenNode, ScreenContext, LayerType, NodeId, ScreenId, EndpointRef, ExportedContext } from '@/types'
 import {
@@ -148,7 +149,7 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
   }
 
   // ── Export handler ──
-  const handleExport = (format: 'clipboard' | 'json' | 'markdown') => {
+  const handleExport = (format: 'clipboard' | 'json' | 'markdown' | 'mcp') => {
     const ctx: ExportedContext = {
       project: { name: project.name, settings: project.settings },
       journeys: journeys.map(j => ({
@@ -169,8 +170,13 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
     }
 
     let text = ''
-    if (format === 'markdown') text = toMarkdown(ctx)
-    else text = JSON.stringify(ctx, null, 2)
+    if (format === 'markdown') {
+      text = toMarkdown(ctx)
+    } else if (format === 'mcp') {
+      text = JSON.stringify(buildMCPContext(project.name, project.settings.framework, project.settings.styling, nodes), null, 2)
+    } else {
+      text = JSON.stringify(ctx, null, 2)
+    }
 
     navigator.clipboard.writeText(text).then(() => {
       setExported(true)
@@ -462,6 +468,7 @@ export default function BrainCanvas({ project }: BrainCanvasProps) {
           {[
             { label: 'Clipboard', icon: <Copy size={13} />, format: 'clipboard' as const },
             { label: 'CLAUDE.md', icon: <FileText size={13} />, format: 'markdown' as const, primary: true },
+            { label: 'MCP', icon: <Zap size={13} />, format: 'mcp' as const },
             { label: 'JSON', icon: <FileJson size={13} />, format: 'json' as const },
           ].map(btn => (
             <button
@@ -529,10 +536,14 @@ function NodeCard({ node, selected, connectMode, onConnect, onDelete, onSelect }
         border: isConnectTarget ? `2px dashed ${color}` : '1px solid rgba(0,0,0,.06)',
       }}
     >
-      {/* Top accent line */}
+      {/* Top accent line — always subtle, full on hover/select */}
       <div className="absolute top-0 left-0 right-0 h-[3px] transition-opacity" style={{
         background: `linear-gradient(90deg, ${color}, ${color}88)`,
-        opacity: selected ? 1 : 0,
+        opacity: selected ? 1 : 0.35,
+      }} />
+      <div className="absolute top-0 left-0 right-0 h-[3px] transition-opacity group-hover:opacity-100" style={{
+        background: `linear-gradient(90deg, ${color}, ${color}88)`,
+        opacity: 0,
       }} />
 
       {/* Header */}
@@ -907,10 +918,29 @@ function ContextPanel({ node, projectId, onClose, editingScreen, setEditingScree
 
 function ScreenEditor({ screen, projectId, journeyId }: { screen: ScreenNode; projectId: string; journeyId: NodeId }) {
   const updateScreenCtx = useStore(s => s.updateScreenCtx)
+  const updateScreen = useStore(s => s.updateScreen)
   const deleteScreen = useStore(s => s.deleteScreen)
+  const nodesRaw = useStore(s => s.nodes[projectId])
+  const allNodes = nodesRaw ?? []
+  const apiNodes = allNodes.filter(n => n.type === 'api') as APINode[]
+  const allEndpoints = apiNodes.flatMap(a => a.endpoints)
 
   const update = (field: keyof ScreenContext, value: string | boolean | string[]) => {
     updateScreenCtx(projectId, journeyId, screen.id, { [field]: value })
+  }
+
+  const setVisualSource = (type: 'figma' | 'upload' | 'description' | null) => {
+    updateScreen(projectId, journeyId, screen.id, {
+      visualSource: type ? { type } : null,
+    })
+  }
+
+  const toggleEndpoint = (endpointId: string) => {
+    const exists = screen.context.endpoints.some(e => e.endpointId === endpointId)
+    const newEndpoints = exists
+      ? screen.context.endpoints.filter(e => e.endpointId !== endpointId)
+      : [...screen.context.endpoints, { endpointId, purpose: '' }]
+    updateScreenCtx(projectId, journeyId, screen.id, { endpoints: newEndpoints })
   }
 
   return (
@@ -921,32 +951,72 @@ function ScreenEditor({ screen, projectId, journeyId }: { screen: ScreenNode; pr
 
       <div>
         <label className="text-[10px] font-semibold uppercase tracking-wider block mb-1.5" style={{ fontFamily: 'var(--font-mono)', color: '#8E8EA0' }}>States</label>
-        <TagInput
-          tags={screen.context.states}
-          onChange={v => update('states', v)}
-          placeholder="loading, error, empty..."
-        />
+        <TagInput tags={screen.context.states} onChange={v => update('states', v)} placeholder="loading, error, empty..." />
       </div>
 
       <div>
         <label className="text-[10px] font-semibold uppercase tracking-wider block mb-1.5" style={{ fontFamily: 'var(--font-mono)', color: '#8E8EA0' }}>Components from DS</label>
-        <TagInput
-          tags={screen.context.components}
-          onChange={v => update('components', v)}
-          placeholder="Button, Input, Card..."
-        />
+        <TagInput tags={screen.context.components} onChange={v => update('components', v)} placeholder="Button, Input, Card..." />
+      </div>
+
+      {/* API Contracts linking */}
+      {allEndpoints.length > 0 && (
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider block mb-1.5" style={{ fontFamily: 'var(--font-mono)', color: '#8E8EA0' }}>API Contracts</label>
+          <div className="space-y-1">
+            {allEndpoints.map(ep => {
+              const linked = screen.context.endpoints.some(e => e.endpointId === ep.id)
+              return (
+                <button
+                  key={ep.id}
+                  onClick={() => toggleEndpoint(ep.id)}
+                  className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-all"
+                  style={{ background: linked ? 'rgba(99,102,241,.06)' : '#F4F4F6', border: linked ? '1px solid rgba(99,102,241,.2)' : '1px solid transparent' }}
+                >
+                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{
+                    background: ep.method === 'GET' ? '#10B98115' : '#3B82F615',
+                    color: ep.method === 'GET' ? '#10B981' : '#3B82F6', fontFamily: 'var(--font-mono)',
+                  }}>{ep.method}</span>
+                  <span className="text-[11px] font-mono flex-1 truncate" style={{ color: linked ? '#1A1A2E' : '#8E8EA0' }}>{ep.path}</span>
+                  {linked && <Check size={12} style={{ color: '#6366F1' }} />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Visual Source */}
+      <div>
+        <label className="text-[10px] font-semibold uppercase tracking-wider block mb-1.5" style={{ fontFamily: 'var(--font-mono)', color: '#8E8EA0' }}>Visual Source</label>
+        {screen.visualSource ? (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.15)' }}>
+            <span className="text-xs font-medium flex-1" style={{ color: '#6366F1' }}>
+              {screen.visualSource.type === 'figma' ? '🎨 Figma' : screen.visualSource.type === 'upload' ? '🖼️ Image' : '✏️ Description'}
+            </span>
+            <button onClick={() => setVisualSource(null)} className="cursor-pointer" style={{ color: '#B8B8C8' }}><X size={12} /></button>
+          </div>
+        ) : (
+          <div className="flex gap-1.5">
+            {(['figma', 'upload', 'description'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setVisualSource(t)}
+                className="flex-1 text-[11px] font-medium px-2 py-2 rounded-lg cursor-pointer transition-all hover:shadow-sm"
+                style={{ background: 'white', color: '#5C5C72', border: '1px solid rgba(0,0,0,.08)' }}
+              >
+                {t === 'figma' ? 'Figma' : t === 'upload' ? 'Upload' : 'Describe'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <Field label="Notes" value={screen.context.notes} onChange={v => update('notes', v)} placeholder="Architecture notes..." multiline />
 
       <div className="flex items-center justify-between pt-1">
         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: '#5C5C72' }}>
-          <input
-            type="checkbox"
-            checked={screen.context.requiresAuth}
-            onChange={e => update('requiresAuth', e.target.checked)}
-            className="rounded"
-          />
+          <input type="checkbox" checked={screen.context.requiresAuth} onChange={e => update('requiresAuth', e.target.checked)} className="rounded" />
           Requires auth
         </label>
         <button
